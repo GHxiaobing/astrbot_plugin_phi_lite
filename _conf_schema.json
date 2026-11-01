@@ -1,0 +1,7 @@
+{
+  "api_token": {
+    "type": "string",
+    "description": "r0semi 开放接口的 X-OpenApi-Token（pgr_ 开头）",
+    "default": ""
+  }
+}
