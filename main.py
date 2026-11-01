@@ -164,13 +164,16 @@ class PhiLitePlugin(Star):
             logger.warning(f"phi_lite 发二维码失败: {e}")
             return None
 
-    async def _recall(self, event: AstrMessageEvent, msg_id):
-        if not msg_id:
-            return
-        try:
-            await event.bot.api.call_action("delete_msg", message_id=msg_id)
-        except Exception as e:
-            logger.warning(f"phi_lite 撤回二维码失败: {e}")
+    async def _recall(self, event: AstrMessageEvent, msg_id, notice=""):
+        """撤回二维码；撤不掉就补一句作废提示，别让旧码留着。"""
+        ok = False
+        if msg_id:
+            try:
+                await event.bot.api.call_action("delete_msg", message_id=msg_id)
+                ok = True
+            except Exception as e:
+                logger.warning(f"phi_lite 撤回二维码失败: {e}")
+        return ok
 
     @filter.command("phi_qrlogin")
     async def phi_qrlogin(self, event: AstrMessageEvent):
@@ -203,11 +206,14 @@ class PhiLitePlugin(Star):
             if status in ("scanned", "scanning"):
                 if not scanned:
                     scanned = True
-                    await self._recall(event, msg_id)
+                    if not await self._recall(event, msg_id):
+                        yield event.plain_result("上面那张码已经用掉了喵，别再扫它")
                     yield event.plain_result("扫到啦，手机上点一下确认喵")
                 continue
             if status in ("success", "confirmed"):
-                await self._recall(event, msg_id)
+                if not await self._recall(event, msg_id):
+                    yield event.plain_result("上面那张码作废了喵，别外传")
+
                 token = st.get("sessionToken")
                 if not token:
                     yield event.plain_result("确认了，但没拿到 token，回头我看日志喵")
@@ -216,13 +222,16 @@ class PhiLitePlugin(Star):
                 yield event.plain_result("登好啦，已经帮你绑上，发 /phi_b30 看看喵")
                 return
             if status in ("expired", "timeout", "canceled", "cancelled"):
-                await self._recall(event, msg_id)
+                if not await self._recall(event, msg_id):
+                    yield event.plain_result("上面那张码过期了喵，别再扫")
+
                 yield event.plain_result("码过期了喵，再发一次 /phi_qrlogin")
                 return
             await self._recall(event, msg_id)
             yield event.plain_result(f"登录没成，状态是 {status} 喵")
             return
-        await self._recall(event, msg_id)
+        if not await self._recall(event, msg_id):
+            yield event.plain_result("上面那张码超时作废喵，别再扫")
         yield event.plain_result("等太久啦，码先撤了，要不再来一次喵")
 
     @filter.command("phi_unbind")
