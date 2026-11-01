@@ -68,10 +68,150 @@ def cover(key, cache):
     except Exception:
         return None
 
+DIFF_ORDER = ["EZ", "HD", "IN", "AT"]
+
+
+def render_song(payload, data, out_dir, cache_dir):
+    """单曲卡片：一张图看完这首歌各难度成绩。"""
+    import time as _t
+    want = payload.get("song") or ""
+    rec = data["save"]["game_record"]
+    norm = lambda s: "".join(str(s).split()).lower()
+    hit = next((s for s in rec if norm(s) == norm(want)), None)
+    if hit is None:
+        hit = next((s for s in rec if norm(want) in norm(s)), None)
+    if hit is None:
+        print(json.dumps({"ok": False, "error": f"没找到《{want}》这首歌"})); return
+
+    charts = {c.get("difficulty"): c for c in rec[hit]}
+    rows = []
+    for diff in DIFF_ORDER:
+        c = charts.get(diff)
+        if not c: continue
+        score = int(c.get("score", 0) or 0)
+        acc = float(c.get("accuracy", 0) or 0)
+        rows.append({
+            "diff": diff, "score": score, "acc": acc,
+            "const": float(c.get("chart_constant", 0) or 0),
+            "fc": bool(c.get("is_full_combo")), "played": score > 0,
+            "ap": score >= 1000000 or acc >= 100,
+            "rks": float(c.get("rks", 0) or 0),
+        })
+
+    W, H = 900, 300 + 92 * max(1, len(rows)) + 60
+    img = Image.new("RGB", (W, H), (16, 17, 22))
+    d = ImageDraw.Draw(img)
+    f = font
+
+    side = 220
+    im = cover(hit, cache_dir)
+    if im:
+        w0, h0 = im.size; s0 = min(w0, h0)
+        im = im.crop(((w0 - s0) // 2, (h0 - s0) // 2, (w0 - s0) // 2 + s0, (h0 - s0) // 2 + s0)).resize((side, side), Image.LANCZOS)
+        mask = Image.new("L", (side, side), 0)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, side - 1, side - 1], radius=16, fill=255)
+        img.paste(im, (36, 36), mask)
+
+    name = hit if len(hit) <= 22 else hit[:21] + "…"
+    txt(d, (288, 48), name, font=f(34), fill=(255, 255, 255))
+    txt(d, (288, 100), f"{data.get('nickname') or ''} · 存档 " + str(data["save"].get("updatedAt", ""))[:10],
+        font=f(20), fill=(150, 152, 164))
+
+    consts = "/".join(f"{r['const']:.1f}" for r in rows) if rows else "-"
+    txt(d, (288, 138), f"定数 {consts}", font=f(22), fill=(160, 200, 255))
+
+    y = 300
+    for r in rows:
+        tag = r["diff"]
+        color = COLORS.get(tag, (90, 90, 96))
+        d.rounded_rectangle([36, y, 136, y + 56], radius=12, fill=color)
+        tw = d.textlength(tag, font=f(30))
+        txt(d, (36 + (100 - tw) / 2, y + 10), tag, font=f(30), fill=(20, 20, 20) if tag != "AT" else (255, 255, 255))
+        if not r["played"]:
+            txt(d, (168, y + 8), "未游玩", font=f(28), fill=(120, 122, 132))
+        else:
+            txt(d, (168, y + 4), f"{r['score']:,}", font=f(38), fill=(255, 214, 92))
+            txt(d, (168, y + 48) if False else (430, y + 12), f"Acc {r['acc']:.2f}%", font=f(24), fill=(200, 202, 214))
+            txt(d, (640, y + 12), f"rks {r['rks']:.2f}" if r["rks"] else "", font=f(22), fill=(160, 200, 255))
+            if r["ap"] or r["fc"]:
+                badge = "AP" if r["ap"] else "FC"
+                bw = d.textlength(badge, font=f(22)) + 22
+                d.rounded_rectangle([760, y + 12, 760 + bw, y + 46], radius=8,
+                                    fill=(255, 205, 70) if badge == "AP" else (96, 165, 250))
+                txt(d, (771, y + 16), badge, font=f(22), fill=(25, 25, 25) if badge == "AP" else (255, 255, 255))
+        y += 92
+
+    txt(d, (36, H - 44), "数据 r0semi.xtower.site · 曲绘 somnia.xtower.site · phi_lite", font=f(18), fill=(110, 112, 122))
+    out = out_dir / f"song_{int(_t.time())}.jpg"
+    img.save(out, quality=92)
+    print(json.dumps({"ok": True, "path": str(out)}))
+
+
+def render_rks(payload, data, out_dir, cache_dir):
+    """rks 曲线：把历史记录画成折线。"""
+    import time as _t
+    pts = []
+    for it in (payload.get("items") or []):
+        try:
+            pts.append((str(it.get("createdAt", ""))[:16].replace("T", " "), float(it.get("rks", 0))))
+        except Exception:
+            continue
+    pts.reverse()
+    if not pts:
+        print(json.dumps({"ok": False, "error": "没有 rks 历史记录"})); return
+
+    W, H = 1200, 620
+    img = Image.new("RGB", (W, H), (16, 17, 22))
+    d = ImageDraw.Draw(img)
+    f = font
+
+    txt(d, (40, 32), "rks 变化", font=f(38), fill=(255, 255, 255))
+    txt(d, (40, 86), f"{data.get('nickname') or ''} · 共 {len(pts)} 条记录", font=f(20), fill=(150, 152, 164))
+
+    vals = [v for _, v in pts]
+    lo, hi = min(vals), max(vals)
+    if hi - lo < 0.5:
+        mid = (hi + lo) / 2
+        lo, hi = mid - 0.25, mid + 0.25
+    pad = (hi - lo) * 0.15
+    lo, hi = lo - pad, hi + pad
+
+    x0, y0, x1, y1 = 90, 150, W - 60, H - 110
+    for i in range(5):
+        gy = y0 + (y1 - y0) * i / 4
+        d.line([(x0, gy), (x1, gy)], fill=(40, 42, 52), width=1)
+        txt(d, (34, gy - 12), f"{hi - (hi - lo) * i / 4:.2f}", font=f(18), fill=(130, 132, 144))
+
+    n = len(pts)
+    if n == 1:
+        coords = [((x0 + x1) / 2, (y0 + y1) / 2)]
+    else:
+        coords = [(x0 + (x1 - x0) * i / (n - 1), y1 - (y1 - y0) * (v - lo) / (hi - lo)) for i, v in enumerate(vals)]
+    if len(coords) > 1:
+        d.line(coords, fill=(120, 200, 255), width=4, joint="curve")
+    if n <= 80:
+        for cx, cy in coords:
+            d.ellipse([cx - 5, cy - 5, cx + 5, cy + 5], fill=(255, 214, 92))
+
+    txt(d, (x0, y1 + 16), pts[0][0], font=f(18), fill=(130, 132, 144))
+    lw = d.textlength(pts[-1][0], font=f(18))
+    txt(d, (x1 - lw, y1 + 16), pts[-1][0], font=f(18), fill=(130, 132, 144))
+    txt(d, (x1 - 220, y0 - 50), f"当前 {vals[-1]:.4f}", font=f(26), fill=(255, 214, 92))
+    txt(d, (40, H - 44), "数据 r0semi.xtower.site · phi_lite", font=f(18), fill=(110, 112, 122))
+
+    out = out_dir / f"rks_{int(_t.time())}.jpg"
+    img.save(out, quality=92)
+    print(json.dumps({"ok": True, "path": str(out)}))
+
+
 def main():
     payload = json.load(sys.stdin)
     data, out_dir, cache_dir = payload["data"], Path(payload["out_dir"]), Path(payload["cache_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
+    if payload.get("mode") == "song":
+        return render_song(payload, data, out_dir, cache_dir)
+    if payload.get("mode") == "rks":
+        return render_rks(payload, data, out_dir, cache_dir)
 
     save = data["save"]; rec = save["game_record"]
     nick = data.get("nickname") or "Phigros Player"
