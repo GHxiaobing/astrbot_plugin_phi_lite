@@ -134,6 +134,7 @@ class PhiLitePlugin(Star):
             if f.exists():
                 token = f.read_text("utf-8").strip()
         self.phi = PhiLite(self.plugin_dir, token)
+        self.games = {}
 
     @filter.command("phi_bind")
     async def phi_bind(self, event: AstrMessageEvent, token: str = ""):
@@ -328,3 +329,60 @@ class PhiLitePlugin(Star):
             yield event.plain_result(f"出图失败：{e}")
             return
         yield event.chain_result([Comp.Image.fromFileSystem(str(path))])
+
+    # ---------- 猜曲 ----------
+    def _game_key(self, event):
+        gid = event.get_group_id()
+        return f"group:{gid}" if gid else f"private:{event.get_sender_id()}"
+
+    @filter.command("phi_guess")
+    async def phi_guess(self, event: AstrMessageEvent):
+        """出一题猜曲：/phi_guess"""
+        import random
+        import time
+
+        sess = self.phi.session_of(event.get_sender_id())
+        if not sess:
+            yield event.plain_result("先 /phi_bind <sessionToken> 绑一下喵")
+            return
+        try:
+            data = self.phi.fetch_save(sess)
+        except Exception as e:
+            yield event.plain_result(f"出题失败：{e}")
+            return
+        rec = data["save"].get("game_record") or {}
+        pool = [s for s, cs in rec.items() if isinstance(cs, list) and cs]
+        if not pool:
+            yield event.plain_result("没有可出的题喵")
+            return
+        song = random.choice(pool)
+        charts = rec[song]
+        diff = random.choice([c.get("difficulty") for c in charts]) or "IN"
+        const = next((c.get("chart_constant") for c in charts if c.get("difficulty") == diff), 0)
+        self.games[self._game_key(event)] = {"song": song, "diff": diff, "const": const, "at": time.time()}
+        masked = song[0] + "…" * max(0, len(song) - 1)
+        yield event.plain_result(
+            f"猜曲开始喵：难度 {diff}，定数 {float(const):.1f}，曲名 {len(song)} 个字，开头是「{song[0]}」"
+        )
+        yield event.plain_result("想好了发 /phi_answer 曲名，猜对我就认输喵")
+
+    @filter.command("phi_answer")
+    async def phi_answer(self, event: AstrMessageEvent, name: str = ""):
+        """回答猜曲：/phi_answer <曲名>"""
+        import time
+
+        key = self._game_key(event)
+        g = self.games.get(key)
+        if not g:
+            yield event.plain_result("现在没有题喵，先发 /phi_guess")
+            return
+        norm = lambda s: "".join(str(s).split()).lower()
+        if time.time() - g["at"] > 180:
+            self.games.pop(key, None)
+            yield event.plain_result(f"这题过期了喵，答案是《{g['song']}》")
+            return
+        if norm(name) and norm(name) in norm(g["song"]):
+            self.games.pop(key, None)
+            yield event.plain_result(f"对啦，就是《{g['song']}》喵！")
+            return
+        yield event.plain_result("不对喵，再想想，或者发 /phi_guess 换一题")
