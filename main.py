@@ -122,7 +122,7 @@ class PhiLite:
         return Path(res["path"])
 
 
-@register("phi_lite", "琥珀雪绒", "Phigros 查分（轻量）", "0.1.0")
+@register("phi_lite", "琥珀雪绒", "Phigros 查分（轻量）", "0.2.0")
 class PhiLitePlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)

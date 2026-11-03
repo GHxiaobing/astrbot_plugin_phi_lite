@@ -1,6 +1,6 @@
 name: astrbot_plugin_phi_lite
 display_name: Phigros 查分（轻量）
 desc: 查 Phigros 存档与 Best30，自绘成绩图，中文字体全覆盖
-version: 0.1.0
+version: 0.2.0
 author: 琥珀雪绒
 repo: https://github.com/GHxiaobing/astrbot_plugin_phi_lite
