@@ -292,3 +292,39 @@ class PhiLitePlugin(Star):
             yield event.plain_result(f"出图失败：{e}")
             return
         yield event.chain_result([Comp.Image.fromFileSystem(str(path))])
+
+    @filter.command("phi_random")
+    async def phi_random(self, event: AstrMessageEvent, diff: str = ""):
+        """随机抽一首歌：/phi_random 或 /phi_random IN"""
+        import random
+
+        sess = self.phi.session_of(event.get_sender_id())
+        if not sess:
+            yield event.plain_result("先 /phi_bind <sessionToken> 绑一下喵")
+            return
+        try:
+            data = self.phi.fetch_save(sess)
+        except Exception as e:
+            logger.error(f"phi_lite random 失败: {e}")
+            yield event.plain_result(f"抽曲失败：{e}")
+            return
+        want = diff.strip().upper()
+        pool = []
+        for song, charts in (data["save"].get("game_record") or {}).items():
+            if not isinstance(charts, list):
+                continue
+            if want and not any((c.get("difficulty") or "") == want for c in charts):
+                continue
+            pool.append(song)
+        if not pool:
+            yield event.plain_result(f"没有{('难度 ' + want) if want else ''}的歌喵")
+            return
+        song = random.choice(pool)
+        yield event.plain_result(f"抽到的是《{song}》喵")
+        try:
+            path = self.phi.render_song(data, song)
+        except Exception as e:
+            logger.error(f"phi_lite random 出图失败: {e}")
+            yield event.plain_result(f"出图失败：{e}")
+            return
+        yield event.chain_result([Comp.Image.fromFileSystem(str(path))])
