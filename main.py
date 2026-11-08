@@ -386,3 +386,13 @@ class PhiLitePlugin(Star):
             yield event.plain_result(f"对啦，就是《{g['song']}》喵！")
             return
         yield event.plain_result("不对喵，再想想，或者发 /phi_guess 换一题")
+
+    @filter.command("phi_help")
+    async def phi_help(self, event: AstrMessageEvent):
+        """列出插件能用的全部指令"""
+        yield event.plain_result(
+            "喵，phi_lite 能用的指令都在这儿：\n"
+            "【绑定】\n/phi_qrlogin 扫码登录\n/phi_bind <token> 手动填 token 绑定\n/phi_unbind 解绑\n"
+            "【查分】\n/phi_b30 Best30 成绩图\n/phi_rks 查 RKS\n/phi_song <曲名> 查单曲成绩\n"
+            "【玩玩】\n/phi_random [难度] 随机一首\n/phi_guess 出题猜曲\n/phi_answer <曲名> 答题"
+        )
